@@ -217,10 +217,12 @@ void button_task(void) {
         if (current_button_state && !button_hold_state) {
             button_hold_started = now;
             button_pressed_duration = 0;
+            signal_emit(SIGNAL_BUTTON_PRESS);
         }
         else if (!current_button_state && button_hold_state) {
             button_pressed_duration = button_hold_started == 0 ? 0 : now - button_hold_started;
             button_hold_started = 0;
+            signal_emit(SIGNAL_BUTTON_RELEASE);
         }
         else if (current_button_state && button_hold_state && button_hold_started != 0) {
             button_pressed_duration = now - button_hold_started;
