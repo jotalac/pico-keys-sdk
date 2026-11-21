@@ -45,6 +45,8 @@
 #define CCID_GET_PARAMS         0x6C /* non-ICCD command */
 #define CCID_RESET_PARAMS       0x6D /* non-ICCD command */
 #define CCID_XFR_BLOCK          0x6F
+#define CCID_ABORT              0x72
+#define CCID_CLASS_REQ_ABORT    0x01
 #define CCID_DATA_BLOCK_RET     0x80
 #define CCID_SLOT_STATUS_RET    0x81 /* non-ICCD result */
 #define CCID_PARAMS_RET         0x82 /* non-ICCD result */
@@ -239,6 +241,22 @@ static int ccid_write_fast(uint8_t itf, const_byte_array_t buffer) {
     return driver_write_ccid(itf, buffer);
 }
 
+#ifdef HIDE_FIDO_FROM_CCID
+/* SELECT of the FIDO applet (A0/B0 00 00 06 47 2F 00 01), short or extended Lc. */
+static bool ccid_is_fido_select(const uint8_t *a, uint32_t len) {
+    static const uint8_t aid_tail[] = { 0x00, 0x00, 0x06, 0x47, 0x2F, 0x00, 0x01 };
+    if (len < 13 || a[1] != 0xA4 || a[2] != 0x04) {
+        return false;
+    }
+    uint32_t offset = 5;
+    if (a[4] == 0) {
+        offset = 7;
+    }
+    return len >= offset + 8 && (a[offset] == 0xA0 || a[offset] == 0xB0) &&
+           memcmp(a + offset + 1, aid_tail, sizeof(aid_tail)) == 0;
+}
+#endif
+
 int driver_process_usb_packet_ccid(uint8_t itf, uint16_t rx_read) {
     (void) rx_read;
     if (ccid_rx[itf].w_ptr - ccid_rx[itf].r_ptr >= 10) {
@@ -277,7 +295,18 @@ int driver_process_usb_packet_ccid(uint8_t itf, uint16_t rx_read) {
                 ccid_resp_fast[itf]->abRFU1 = 0;
                 ccid_write_fast(itf, CONST_BYTE_ARRAY((const uint8_t *)ccid_resp_fast[itf], 10));
             }
+            else if (ccid_header[itf]->bMessageType == CCID_ABORT) {
+                card_abort_command(sc_itf_to_usb_itf(itf));
+                ccid_resp_fast[itf]->bMessageType = CCID_SLOT_STATUS_RET;
+                ccid_resp_fast[itf]->dwLength = 0;
+                ccid_resp_fast[itf]->bSlot = 0;
+                ccid_resp_fast[itf]->bSeq = ccid_header[itf]->bSeq;
+                ccid_resp_fast[itf]->abRFU0 = ccid_status;
+                ccid_resp_fast[itf]->abRFU1 = 0;
+                ccid_write_fast(itf, CONST_BYTE_ARRAY((const uint8_t *)ccid_resp_fast[itf], 10));
+            }
             else if (ccid_header[itf]->bMessageType == CCID_POWER_ON) {
+                card_abort_command(sc_itf_to_usb_itf(itf));
                 size_t size_atr = (ccid_atr ? ccid_atr[0] : 0);
                 ccid_resp_fast[itf]->bMessageType = CCID_DATA_BLOCK_RET;
                 ccid_resp_fast[itf]->dwLength = (uint32_t)size_atr;
@@ -296,6 +325,7 @@ int driver_process_usb_packet_ccid(uint8_t itf, uint16_t rx_read) {
                 led_set_mode(MODE_MOUNTED);
             }
             else if (ccid_header[itf]->bMessageType == CCID_POWER_OFF) {
+                card_abort_command(sc_itf_to_usb_itf(itf));
                 if (ccid_status == 0) {
                     //card_exit(0);
                 }
@@ -343,6 +373,21 @@ int driver_process_usb_packet_ccid(uint8_t itf, uint16_t rx_read) {
                 ccid_write_fast(itf, CONST_BYTE_ARRAY((const uint8_t *)ccid_resp_fast[itf], 18));
             }
             else if (ccid_header[itf]->bMessageType == CCID_XFR_BLOCK) {
+                /* A new command means the host gave up on the one still running. */
+                card_abort_command(sc_itf_to_usb_itf(itf));
+#ifdef HIDE_FIDO_FROM_CCID
+                if (ccid_is_fido_select(&ccid_header[itf]->apdu, ccid_header[itf]->dwLength)) {
+                    ccid_resp_fast[itf]->bMessageType = CCID_DATA_BLOCK_RET;
+                    ccid_resp_fast[itf]->dwLength = 2;
+                    ccid_resp_fast[itf]->bSlot = 0;
+                    ccid_resp_fast[itf]->bSeq = ccid_header[itf]->bSeq;
+                    ccid_resp_fast[itf]->abRFU0 = ccid_status;
+                    ccid_resp_fast[itf]->abRFU1 = 0;
+                    memcpy(&ccid_resp_fast[itf]->apdu, "\x6A\x82", 2);
+                    ccid_write_fast(itf, CONST_BYTE_ARRAY((const uint8_t *)ccid_resp_fast[itf], 12));
+                    return 0;
+                }
+#endif
                 apdu.rdata = &ccid_response[itf]->apdu;
                 apdu_sent = apdu_process_ccid(itf, CONST_BYTE_ARRAY(&ccid_header[itf]->apdu, (uint16_t)ccid_header[itf]->dwLength));
 #ifndef ENABLE_EMULATION
@@ -485,6 +530,15 @@ static bool ccid_control_xfer_cb(uint8_t __unused rhport,
     TU_LOG2("-------- CCID CTRL XFER\n");
     if (stage != CONTROL_STAGE_SETUP) {
         return true;
+    }
+
+    if (request->bmRequestType_bit.type == TUSB_REQ_TYPE_CLASS &&
+        request->bmRequestType_bit.recipient == TUSB_REQ_RCPT_INTERFACE &&
+        request->bRequest == CCID_CLASS_REQ_ABORT) {
+        for (uint8_t itf = 0; itf < ITF_SC_TOTAL; itf++) {
+            card_abort_command(sc_itf_to_usb_itf(itf));
+        }
+        return tud_control_status(rhport, request);
     }
 
     if (request->wIndex == itf_num) {

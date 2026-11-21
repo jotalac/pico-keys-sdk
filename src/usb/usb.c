@@ -243,6 +243,14 @@ void timeout_start(void) {
     timeout = board_millis();
 }
 
+/* True from the moment core 1 gets a command until it reports EV_EXEC_FINISHED. */
+static volatile bool card_cmd_running = false;
+volatile bool card_cancel_pending = false;
+
+bool card_is_busy_on(uint8_t itf) {
+    return card_cmd_running && card_locked_itf == itf;
+}
+
 bool is_busy(void) {
     return timeout > 0;
 }
@@ -253,6 +261,7 @@ void usb_send_event(uint32_t flag) {
 #endif
     queue_add_blocking(&usb_to_card_q, &flag);
     if (flag == EV_CMD_AVAILABLE) {
+        card_cmd_running = true;
         timeout_start();
     }
 #ifndef ENABLE_EMULATION
@@ -292,8 +301,40 @@ void card_start(uint8_t itf, void *(*func)(void *)) {
     }
 }
 
+#ifndef ENABLE_EMULATION
+/* While core 1 waits for the button it only listens for button events, so a running
+ * command has to end before core 1 can take anything else. Its result is dropped. */
+static void card_finish_running_command(void) {
+    uint32_t started = board_millis();
+    while (card_cmd_running && board_millis() - started < 60000) {
+        cancel_button = true;
+        if (timeout == 0) {
+            timeout_start();
+        }
+        button_task();
+        card_status(card_locked_itf);
+    }
+}
+#endif
+
+void card_abort_command(uint8_t itf) {
+#ifndef ENABLE_EMULATION
+    if (card_is_busy_on(itf)) {
+        card_finish_running_command();
+        finished_data_size = 0;
+        card_cancel_pending = false;
+        cancel_button = false;
+    }
+#else
+    (void)itf;
+#endif
+}
+
 void card_exit(void) {
     if (card_locked_itf != ITF_TOTAL || card_locked_func != NULL) {
+#ifndef ENABLE_EMULATION
+        card_finish_running_command();
+#endif
         usb_send_event(EV_EXIT);
         uint32_t m;
         while (queue_is_empty(&usb_to_card_q) == false) {
@@ -319,6 +360,9 @@ void card_exit(void) {
     }
     card_locked_itf = ITF_TOTAL;
     card_locked_func = NULL;
+    card_cmd_running = false;
+    card_cancel_pending = false;
+    cancel_button = false;
 }
 extern void hid_task(void);
 extern void ccid_task(void);
@@ -352,6 +396,7 @@ int card_status(uint8_t itf) {
         //    printf("\n ------ M = %lu\n",m);
         if (has_m) {
             if (m == EV_EXEC_FINISHED) {
+                card_cmd_running = false;
                 timeout_stop();
                 if (led_get_mode() == MODE_PROCESSING) {
                     led_set_mode(MODE_MOUNTED);

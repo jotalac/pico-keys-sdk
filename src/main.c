@@ -101,6 +101,10 @@ int select_app(const_byte_array_t aid) {
 }
 
 
+#ifdef ENABLE_DISPLAY
+#include "display.h"
+#endif
+
 WEAK int picokey_init(void) {
     return 0;
 }
@@ -118,6 +122,9 @@ void execute_tasks(void) {
 #endif
     usb_task();
     led_blinking_task();
+#ifdef ENABLE_DISPLAY
+    display_task();
+#endif
 #ifdef ENABLE_LVGL_UI
     platform_ui_task();
 #endif
@@ -187,6 +194,10 @@ int main(void) {
 #endif
 
     led_init();
+
+#ifdef ENABLE_DISPLAY
+    display_init();
+#endif
 
     usb_init();
 

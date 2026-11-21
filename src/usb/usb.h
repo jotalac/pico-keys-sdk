@@ -94,6 +94,7 @@ extern queue_t card_to_usb_q;
 
 extern void card_start(uint8_t, void *(*func)(void *));
 extern void card_exit(void);
+extern void card_abort_command(uint8_t itf);
 extern int card_status(uint8_t itf);
 extern void usb_init(void);
 
@@ -105,6 +106,8 @@ extern void usb_send_event(uint32_t flag);
 extern void timeout_stop(void);
 extern void timeout_start(void);
 extern bool is_busy(void);
+extern bool card_is_busy_on(uint8_t itf);
+extern volatile bool card_cancel_pending;
 extern void usb_desc_setup(void);
 
 #ifdef USB_ITF_HID

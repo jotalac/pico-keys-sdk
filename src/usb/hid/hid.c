@@ -359,6 +359,26 @@ uint16_t *get_send_buffer_size(uint8_t itf) {
     return &send_buffer_size[itf];
 }
 
+static void hid_drop_cancelled_result(void) {
+    card_cancel_pending = false;
+    cancel_button = false;
+    finished_data_size = 0;
+    apdu.sw = 0;
+}
+
+/* A cancelled command has to finish on core 1 before the next one may start. */
+static bool hid_cancelled_command_done(void) {
+    uint32_t started = board_millis();
+    while (card_cancel_pending && board_millis() - started < 200) {
+        cancel_button = true;
+        button_task();
+        if (card_status(ITF_HID) == PICOKEYS_OK) {
+            hid_drop_cancelled_result();
+        }
+    }
+    return !card_cancel_pending;
+}
+
 int driver_process_usb_packet_hid(uint16_t read) {
     int apdu_sent = 0;
     if (read == HID_RPT_SIZE) {
@@ -383,14 +403,15 @@ int driver_process_usb_packet_hid(uint16_t read) {
             return ctap_error(CTAP1_ERR_CHANNEL_BUSY);
         }
         if (FRAME_TYPE(ctap_req) == TYPE_INIT && ctap_req->init.cmd == CTAPHID_CANCEL) {
-            bool active_transaction = is_busy();
+            bool active_transaction = card_is_busy_on(ITF_HID);
             msg_packet.len = msg_packet.current_len = 0;
             last_packet_time = 0;
-            cancel_button = true;
+            cancel_button = active_transaction;
             res_APDU_size = 0;
             hid_tx[ITF_HID_CTAP].r_ptr = hid_tx[ITF_HID_CTAP].w_ptr = 0;
             send_buffer_size[ITF_HID_CTAP] = 0;
-            if (active_transaction && last_cmd == CTAPHID_CBOR) {
+            if (active_transaction && last_cmd == CTAPHID_CBOR && !card_cancel_pending) {
+                card_cancel_pending = true;
                 finished_data_size = 0;
                 apdu.sw = 0;
                 apdu.rlen = 0;
@@ -400,7 +421,6 @@ int driver_process_usb_packet_hid(uint16_t read) {
                 ctap_resp->init.bcntl = 1;
                 ctap_resp->init.data[0] = CTAPHID_KEEPALIVE_CANCEL_STATUS;
                 hid_write(64);
-                timeout_stop();
             }
             return 0;
         }
@@ -553,6 +573,10 @@ int driver_process_usb_packet_hid(uint16_t read) {
         else if ((last_cmd == CTAPHID_MSG || last_cmd == CTAPHID_OTP) &&
                  (msg_packet.len == 0 ||
                   (msg_packet.len == msg_packet.current_len && msg_packet.len > 0))) {
+            if (!hid_cancelled_command_done()) {
+                msg_packet.len = msg_packet.current_len = 0;
+                return ctap_error(CTAP1_ERR_CHANNEL_BUSY);
+            }
             if (last_cmd == CTAPHID_OTP) {
                 is_nk = true;
 #ifdef ENABLE_OATH_APP
@@ -577,6 +601,10 @@ int driver_process_usb_packet_hid(uint16_t read) {
         }
         else if ((last_cmd == CTAPHID_CBOR || last_cmd >= CTAPHID_VENDOR_FIRST) &&
                  (msg_packet.len == 0 || (msg_packet.len == msg_packet.current_len && msg_packet.len > 0))) {
+            if (!hid_cancelled_command_done()) {
+                msg_packet.len = msg_packet.current_len = 0;
+                return ctap_error(CTAP1_ERR_CHANNEL_BUSY);
+            }
             thread_type = 2;
             cancel_button = false;
             select_app(CONST_BYTE_ARRAY(fido_aid + 1, fido_aid[0]));
@@ -692,7 +720,13 @@ void hid_task(void) {
         last_status_poll_ms = now_ms;
         int status = card_status(ITF_HID);
         if (status == PICOKEYS_OK) {
-            driver_exec_finished_hid(finished_data_size);
+            if (card_cancel_pending) {
+                hid_drop_cancelled_result();
+            }
+            else {
+                cancel_button = false;
+                driver_exec_finished_hid(finished_data_size);
+            }
         }
         else if (status == PICOKEYS_ERR_BLOCKED) {
             send_keepalive();

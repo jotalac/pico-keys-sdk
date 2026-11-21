@@ -127,7 +127,6 @@ void button_wait_start_timeout(uint32_t timeout_seconds) {
         .timeout = button_timeout / 1000,
     };
     signal_emit_param(SIGNAL_USER_PRESENCE_REQUEST, &data);
-    cancel_button = false;
     async_button_wait = true;
     async_button_pressed = picok_board_button_read();
     async_button_started = board_millis();
