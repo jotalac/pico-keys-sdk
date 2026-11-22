@@ -257,6 +257,23 @@ static bool ccid_is_fido_select(const uint8_t *a, uint32_t len) {
 }
 #endif
 
+/* The app each smart-card session is using. HID requests switch the shared current_app
+ * to FIDO, and clients like scdaemon do not send SELECT again before their next command. */
+#define CCID_SESSION_SLOTS 8
+static app_t *ccid_session_app[CCID_SESSION_SLOTS] = { NULL };
+
+static void ccid_session_clear(uint8_t itf) {
+    if (itf < CCID_SESSION_SLOTS) {
+        ccid_session_app[itf] = NULL;
+    }
+}
+
+static void ccid_session_restore(uint8_t itf) {
+    if (itf < CCID_SESSION_SLOTS && ccid_session_app[itf]) {
+        current_app = ccid_session_app[itf];
+    }
+}
+
 int driver_process_usb_packet_ccid(uint8_t itf, uint16_t rx_read) {
     (void) rx_read;
     if (ccid_rx[itf].w_ptr - ccid_rx[itf].r_ptr >= 10) {
@@ -307,6 +324,7 @@ int driver_process_usb_packet_ccid(uint8_t itf, uint16_t rx_read) {
             }
             else if (ccid_header[itf]->bMessageType == CCID_POWER_ON) {
                 card_abort_command(sc_itf_to_usb_itf(itf));
+                ccid_session_clear(itf);
                 size_t size_atr = (ccid_atr ? ccid_atr[0] : 0);
                 ccid_resp_fast[itf]->bMessageType = CCID_DATA_BLOCK_RET;
                 ccid_resp_fast[itf]->dwLength = (uint32_t)size_atr;
@@ -326,6 +344,7 @@ int driver_process_usb_packet_ccid(uint8_t itf, uint16_t rx_read) {
             }
             else if (ccid_header[itf]->bMessageType == CCID_POWER_OFF) {
                 card_abort_command(sc_itf_to_usb_itf(itf));
+                ccid_session_clear(itf);
                 if (ccid_status == 0) {
                     //card_exit(0);
                 }
@@ -388,11 +407,30 @@ int driver_process_usb_packet_ccid(uint8_t itf, uint16_t rx_read) {
                     return 0;
                 }
 #endif
+#ifdef USB_ITF_HID
+                /* macOS probes the smart-card side while a passkey request runs on HID.
+                 * Core 1 runs one command at a time, so answer "busy" instead of
+                 * cancelling that request. */
+                if (card_is_busy_on(ITF_HID)) {
+                    ccid_resp_fast[itf]->bMessageType = CCID_DATA_BLOCK_RET;
+                    ccid_resp_fast[itf]->dwLength = 2;
+                    ccid_resp_fast[itf]->bSlot = 0;
+                    ccid_resp_fast[itf]->bSeq = ccid_header[itf]->bSeq;
+                    ccid_resp_fast[itf]->abRFU0 = ccid_status;
+                    ccid_resp_fast[itf]->abRFU1 = 0;
+                    memcpy(&ccid_resp_fast[itf]->apdu, "\x69\x85", 2);
+                    ccid_write_fast(itf, CONST_BYTE_ARRAY((const uint8_t *)ccid_resp_fast[itf], 12));
+                    return 0;
+                }
+#endif
+                ccid_session_restore(itf);
                 apdu.rdata = &ccid_response[itf]->apdu;
                 apdu_sent = apdu_process_ccid(itf, CONST_BYTE_ARRAY(&ccid_header[itf]->apdu, (uint16_t)ccid_header[itf]->dwLength));
 #ifndef ENABLE_EMULATION
                 if (apdu_sent > 0) {
                     card_start(sc_itf_to_usb_itf(itf), apdu_thread);
+                    /* Stopping a previous APDU thread clears current_app. */
+                    ccid_session_restore(itf);
                     usb_send_event(EV_CMD_AVAILABLE);
                 }
 #endif
@@ -414,6 +452,9 @@ static void driver_exec_timeout_ccid(uint8_t itf) {
 }
 
 void driver_exec_finished_ccid(uint8_t itf, uint16_t size_next) {
+    if (itf < CCID_SESSION_SLOTS) {
+        ccid_session_app[itf] = current_app;
+    }
     driver_exec_finished_cont_ccid(itf, size_next, 0);
 }
 

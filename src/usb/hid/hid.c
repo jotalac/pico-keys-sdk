@@ -580,11 +580,11 @@ int driver_process_usb_packet_hid(uint16_t read) {
             if (last_cmd == CTAPHID_OTP) {
                 is_nk = true;
 #ifdef ENABLE_OATH_APP
-                select_app(CONST_BYTE_ARRAY(oath_aid + 1, oath_aid[0]));
+                select_app_keep_session(CONST_BYTE_ARRAY(oath_aid + 1, oath_aid[0]));
 #endif
             }
             else {
-                select_app(CONST_BYTE_ARRAY(u2f_aid + 1, u2f_aid[0]));
+                select_app_keep_session(CONST_BYTE_ARRAY(u2f_aid + 1, u2f_aid[0]));
             }
 
             thread_type = 1;
@@ -607,7 +607,7 @@ int driver_process_usb_packet_hid(uint16_t read) {
             }
             thread_type = 2;
             cancel_button = false;
-            select_app(CONST_BYTE_ARRAY(fido_aid + 1, fido_aid[0]));
+            select_app_keep_session(CONST_BYTE_ARRAY(fido_aid + 1, fido_aid[0]));
             if (msg_packet.current_len == msg_packet.len && msg_packet.len > 0) {
                 apdu_sent = cbor_process(last_cmd, msg_packet.data, msg_packet.len);
             }

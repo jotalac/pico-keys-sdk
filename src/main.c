@@ -101,6 +101,21 @@ int select_app(const_byte_array_t aid) {
 }
 
 
+/* Switch app for a command on another USB interface without ending the session of
+ * the app being left. A smart-card client keeps its login across a passkey request. */
+int select_app_keep_session(const_byte_array_t aid) {
+    app_t *previous = current_app;
+    int (*unload)(void) = previous ? previous->unload : NULL;
+    if (previous) {
+        previous->unload = NULL;
+    }
+    int r = select_app(aid);
+    if (previous) {
+        previous->unload = unload;
+    }
+    return r;
+}
+
 #ifdef ENABLE_DISPLAY
 #include "display.h"
 #endif

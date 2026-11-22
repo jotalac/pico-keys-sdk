@@ -36,6 +36,7 @@ typedef struct app {
 extern bool app_exists(const_byte_array_t aid);
 extern int register_app(int (*)(app_t *, uint8_t), const uint8_t *);
 extern int select_app(const_byte_array_t aid);
+extern int select_app_keep_session(const_byte_array_t aid);
 
 typedef struct cmd {
     uint8_t ins;
