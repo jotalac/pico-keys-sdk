@@ -258,7 +258,7 @@ static int cmd_keydev_sign(void) {
         mbedtls_mpi_init(&r);
         mbedtls_mpi_init(&s);
 
-        int ret = mbedtls_ecdsa_sign(&ecp.MBEDTLS_PRIVATE(grp), &r, &s, &ecp.MBEDTLS_PRIVATE(d), apdu.data, apdu.nc, random_fill_iterator, NULL);
+        int ret = mbedtls_ecdsa_sign_det_ext(&ecp.MBEDTLS_PRIVATE(grp), &r, &s, &ecp.MBEDTLS_PRIVATE(d), apdu.data, apdu.nc, MBEDTLS_MD_SHA256, random_fill_iterator, NULL);
         if (ret != 0) {
             mbedtls_ecp_keypair_free(&ecp);
             mbedtls_mpi_free(&r);
@@ -503,31 +503,6 @@ static int cmd_read(void) {
     return SW_OK();
 }
 
-#if defined(PICO_RP2350) || defined(ESP_PLATFORM)
-static int cmd_secure(void) {
-    if (apdu.nc != 0) {
-        return SW_WRONG_LENGTH();
-    }
-
-    uint8_t bootkey = P1(apdu);
-    if (bootkey >= 6) {
-        return SW_INCORRECT_P1P2();
-    }
-    bool secure_lock = P2(apdu) == 0x1;
-
-    if (!rescue_require_user_presence()) {
-        return SW_CONDITIONS_NOT_SATISFIED();
-    }
-
-    int ret = otp_enable_secure_boot(bootkey, secure_lock);
-    if (ret != PICOKEYS_OK) {
-        return SW_EXEC_ERROR();
-    }
-    led_3_blinks();
-    return SW_OK();
-}
-#endif
-
 #ifdef PICO_PLATFORM
 static int cmd_reboot_bootsel(void) {
     if (apdu.nc != 0) {
@@ -556,16 +531,12 @@ static int cmd_reboot_bootsel(void) {
 
 #define INS_KEYDEV_SIGN      0x10
 #define INS_WRITE            0x1C
-#define INS_SECURE           0x1D
 #define INS_READ             0x1E
 #define INS_REBOOT_BOOTSEL   0x1F
 
 static const cmd_t cmds[] = {
     { INS_KEYDEV_SIGN, cmd_keydev_sign },
     { INS_WRITE, cmd_write },
-#if defined(PICO_RP2350) || defined(ESP_PLATFORM)
-    { INS_SECURE, cmd_secure },
-#endif
     { INS_READ, cmd_read },
 #ifdef PICO_PLATFORM
     { INS_REBOOT_BOOTSEL, cmd_reboot_bootsel },

@@ -167,6 +167,10 @@ static void core0_loop(void *arg) {
     }
 }
 
+/* Called once the stored files are known, before any app reads them. */
+void picokey_storage_ready(void);
+__attribute__((weak)) void picokey_storage_ready(void) {}
+
 #ifdef ESP_PLATFORM
 extern tinyusb_config_t tusb_cfg;
 extern const uint8_t desc_config[];
@@ -197,6 +201,8 @@ int main(void) {
     low_flash_init();
 
     file_scan_flash();
+
+    picokey_storage_ready();
 
     if (rescue_migrate_keydev() != PICOKEYS_OK) {
         printf("Device attestation key migration failed\n");

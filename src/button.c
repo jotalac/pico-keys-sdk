@@ -50,6 +50,7 @@ bool is_req_button_pending(void) {
 volatile bool cancel_button = false;
 bool touch_accept_button = false;
 volatile bool force_button_wait = false;
+volatile bool button_capture = false;
 
 #if !defined(ENABLE_EMULATION)
 #ifdef ESP_PLATFORM
@@ -228,7 +229,12 @@ void button_task(void) {
             button_pressed_duration = now - button_hold_started;
         }
         button_hold_state = current_button_state;
-        if (button_pressed_cb) {
+        if (button_capture) {
+            button_pressed_state = current_button_state;
+            button_pressed_time = 0;
+            button_press = 0;
+        }
+        else if (button_pressed_cb) {
             if (current_button_state != button_pressed_state) {
                 if (current_button_state == false) { // unpressed
                     if (button_pressed_time == 0 || button_pressed_time + 1000 > now) {

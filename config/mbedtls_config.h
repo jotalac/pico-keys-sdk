@@ -716,7 +716,7 @@
  *
  * Comment this macro to disable deterministic ECDSA.
  */
-//#define MBEDTLS_ECDSA_DETERMINISTIC
+#define MBEDTLS_ECDSA_DETERMINISTIC
 
 /**
  * \def MBEDTLS_KEY_EXCHANGE_PSK_ENABLED
@@ -2413,7 +2413,7 @@
  *
  * Uncomment to enable the HMAC_DRBG random number generator.
  */
-//#define MBEDTLS_HMAC_DRBG_C
+#define MBEDTLS_HMAC_DRBG_C
 
 /**
  * \def MBEDTLS_NIST_KW_C

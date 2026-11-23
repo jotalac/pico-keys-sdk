@@ -247,6 +247,14 @@ static int serial_id_is_zero(const_byte_array_t id) {
 #define pico_get_unique_board_id(a) get_linux_hardware_id((char *)(a))
 #endif
 
+static void serial_publish(void) {
+    memset(pico_serial_str, 0, sizeof(pico_serial_str));
+    for (size_t i = 0; i < sizeof(pico_serial); i++) {
+        snprintf(&pico_serial_str[2 * i], 3, "%02X", pico_serial.id[i]);
+    }
+    mbedtls_sha256(pico_serial.id, sizeof(pico_serial.id), pico_serial_hash, false);
+}
+
 void serial_init(void) {
     int serial_rc = 0;
 
@@ -263,9 +271,12 @@ void serial_init(void) {
         memset(pico_serial.id, 0, sizeof(pico_serial.id));
     }
 
-    memset(pico_serial_str, 0, sizeof(pico_serial_str));
-    for (size_t i = 0; i < sizeof(pico_serial); i++) {
-        snprintf(&pico_serial_str[2 * i], 3, "%02X", pico_serial.id[i]);
+    serial_publish();
+}
+
+void serial_set_identity(const uint8_t *id, size_t len) {
+    if (id != NULL && len == sizeof(pico_serial.id)) {
+        memcpy(pico_serial.id, id, len);
+        serial_publish();
     }
-    mbedtls_sha256(pico_serial.id, sizeof(pico_serial.id), pico_serial_hash, false);
 }

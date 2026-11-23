@@ -187,6 +187,7 @@ set(MBEDTLS_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/third-party/mbedtls/library/ecp_curves.c
     ${CMAKE_CURRENT_LIST_DIR}/third-party/mbedtls/library/gcm.c
     ${CMAKE_CURRENT_LIST_DIR}/third-party/mbedtls/library/hkdf.c
+    ${CMAKE_CURRENT_LIST_DIR}/third-party/mbedtls/library/hmac_drbg.c
     ${CMAKE_CURRENT_LIST_DIR}/third-party/mbedtls/library/md.c
     ${CMAKE_CURRENT_LIST_DIR}/third-party/mbedtls/library/md5.c
     ${CMAKE_CURRENT_LIST_DIR}/third-party/mbedtls/library/oid.c

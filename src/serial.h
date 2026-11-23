@@ -18,6 +18,7 @@
 #ifndef _SERIAL_H_
 #define _SERIAL_H_
 
+#include <stddef.h>
 #include <stdint.h>
 
 #if !defined (PICO_PLATFORM)
@@ -35,6 +36,8 @@ typedef pico_unique_board_id_t picokey_serial_t;
 extern picokey_serial_t pico_serial;
 extern char pico_serial_str[2 * PICO_UNIQUE_BOARD_ID_SIZE_BYTES + 1];
 extern uint8_t pico_serial_hash[32];
+/* Adopts the identity of the board a full backup was made on. */
+extern void serial_set_identity(const uint8_t *id, size_t len);
 extern void serial_init(void);
 
 #endif //_SERIAL_H_

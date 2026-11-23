@@ -39,6 +39,8 @@ extern void button_task(void);
 extern volatile bool cancel_button;
 extern bool touch_accept_button;
 extern volatile bool force_button_wait;
+/* While true, idle presses belong to the UI and do not trigger OTP. */
+extern volatile bool button_capture;
 extern uint32_t button_timeout_seconds(void);
 extern void button_wait_start_timeout(uint32_t timeout_seconds);
 
